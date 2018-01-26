@@ -37,7 +37,7 @@ This week we were provided with the necessary components to construct the actual
 
 (Add some description/photos here)
 
-## Implementing PID Control
+### Implementing PID Control
 We first implemented a simple P controller, which simply detects pitch and accelerates/decelerates the needed motors to keep the craft upright.
 
 We then added Derivative control, using a D value of (blah) in order to (what does D control do exactly?)
