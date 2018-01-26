@@ -18,4 +18,26 @@ In order to account for the robot orientation being slightly off at startup, a c
 
 ## Week 2: Complementary Filter, Keyboard controls, Safety Checks
 
+### Complementary Filter
+The IMU has both gyro and accelerometor data for a reason. Gyros tend to have little noise over short term, but will drift as time goes on. Accelerometers, on the other hand, have little to no drift, but are quite noisy in the short term. By using a combination of both, the robot can accurately detect its current orientation, both in short and long term.
+
+This combination of both sensors is accomplished via a complementary filter, which is essentially a weighted average of the gyro and accelerometer data.
+
+### Keyboard controls
+The next order of business was to incorporate keyboard control over the program. This was accomplished through shared memory, such that the system checks if ctrl+c or space bar has been pressed, and exits from the program when it has.
+
+### Safety Checks
+
+A safety function was incorporated that simply checks if any of the values being detected (gyro, accel, etc) goes above or below a safe value, indicating that the craft is in an unsafe state, such as free fall.
+
 ## Week 3: Building the Quad, implementing Control
+
+### Physical Construction
+This week we were provided with the necessary components to construct the actual quadrotor itself.
+
+(Add some description/photos here)
+
+## Implementing PID Control
+We first implemented a simple P controller, which simply detects pitch and accelerates/decelerates the needed motors to keep the craft upright.
+
+We then added Derivative control, using a D value of (blah) in order to (what does D control do exactly?)
