@@ -25,6 +25,17 @@
 #define AR 0.02 // complementary filter roll coefficient
 #define AP 0.02 // complementary filter pitch coefficient
 
+// Definitions for P controller in week 3
+//add constants
+#define PWM_MAX 1500
+#define frequency 25000000.0
+#define LED0 0x6
+#define LED0_ON_L 0x6
+#define LED0_ON_H 0x7
+#define LED0_OFF_L 0x8
+#define LED0_OFF_H 0x9
+#define LED_MULTIPLYER 4
+
 
 enum Ascale {
   AFS_2G = 0,
@@ -55,8 +66,12 @@ void read_imu();
 void update_filter();
 void safety_check();
 
+//pwm variable added in week 3
+int pwm;
+
 //global variables
 int imu;
+int safe_state = 1;
 float x_gyro_calibration=0;
 float y_gyro_calibration=0;
 float z_gyro_calibration=0;
@@ -71,6 +86,9 @@ float yaw=0;
 float pitch_angle=0;
 float roll_angle=0;
 
+float previous_pitch = 0;
+
+
 float roll_imu = 0;
 float pitch_imu = 0;
 
@@ -80,6 +98,10 @@ float compFiltPitch = 0; // pitch angle calculated by complementary filter in up
 
 void setup_keyboard(void);
 void trap(int);
+void init_pwm();
+void init_motor(uint8_t);
+void set_PWM(uint8_t,float);
+void pid_update();
 
 int main (int argc, char *argv[])
 {
@@ -87,6 +109,23 @@ int main (int argc, char *argv[])
     struct timeval tm;
     long curr_time = 0;
     long heart_beat_timer = 0;
+
+    //motor initializations (added week 3)
+    init_pwm();
+    init_motor(0);
+    init_motor(1);
+    init_motor(2);
+    init_motor(3);
+    delay(1000);
+
+    //to set motor speed call
+    //set_PWM(<motor number>,<speed>); //speed between 1000 and PWM_MAX, motor 0-3
+    if (run_program ==0){
+        set_PWM(0,1000);
+        set_PWM(1,1000);
+        set_PWM(2,1000);
+        set_PWM(3,1000);
+    }
 
     setup_imu();
     calibrate_imu();
@@ -104,6 +143,7 @@ int main (int argc, char *argv[])
 
     while(run_program==1)
     {
+
       //to refresh values from shared memory first
       Keyboard keyboard=*shared_memory;
       if (shared_memory->key_press == ' '){
@@ -132,11 +172,35 @@ int main (int argc, char *argv[])
 
       read_imu();
       update_filter();
+      pid_update();
+      previous_pitch = compFiltPitch;
 
     }
+
+
     return 0;
 }
 
+// PID controller, added week 3
+void pid_update(){
+  int neutral_power = 1300;
+  int P = 15;
+  int D = 200;
+  float desiredPitch = 0;
+  float pitchError = desiredPitch -compFiltPitch;
+  float pitchVelocity = compFiltPitch - previous_pitch;
+
+  float m0PWM = neutral_power + pitchVelocity*D;//- P*pitchError;
+  float m1PWM = neutral_power - pitchVelocity*D;//+ P*pitchError;
+  float m2PWM = neutral_power + pitchVelocity*D;//- P*pitchError;
+  float m3PWM = neutral_power - pitchVelocity*D;//+ P*pitchError;
+
+  set_PWM(0,int(m0PWM));
+  set_PWM(1,int(m1PWM));
+  set_PWM(2,int(m2PWM));
+  set_PWM(3,int(m3PWM));
+
+}
 void calibrate_imu()
 {
   float imuSum[6] = {0,0,0,0,0,0}; // array for storing IMU data to be used for calibration
@@ -374,31 +438,150 @@ void setup_keyboard()
   void trap(int signal)
   {
 
-
+    set_PWM(0,1001);
+    set_PWM(1,1001);
+    set_PWM(2,1001);
+    set_PWM(3,1001);
 
      printf("ending program\n\r");
      run_program=0;
+
   }
 
 void safety_check() {
+  // safe_state = 1;
+
   if ((imu_data[0] > 300) | (imu_data[1] > 300) | (imu_data[2] > 300)) { // any gyro rate > 300 dps
+    // safe_state = 0;
+    set_PWM(0,1001);
+    set_PWM(1,1001);
+    set_PWM(2,1001);
+    set_PWM(3,1001);
     run_program = 0;
     printf("Above gyro rate limit.\r\n");
+
   }
   if ((fabs(imu_data[3]) > 1.8) | (fabs(imu_data[4]) > 1.8) | (fabs(imu_data[5]) > 1.8)) { // any accelerometer value > 1.8 g (< -1.8?)
+    // safe_state = 0;
+    set_PWM(0,1001);
+    set_PWM(1,1001);
+    set_PWM(2,1001);
+    set_PWM(3,1001);
     run_program = 0;
     printf("Above accelerometer max.\r\n");
+
   }
   if ((fabs(imu_data[3]) < 0.25) && (fabs(imu_data[4]) < 0.25) && (fabs(imu_data[5]) < 0.25)) { // ALL accelerometer values < 0.25 g
+    // safe_state = 0;
+    set_PWM(0,1001);
+    set_PWM(1,1001);
+    set_PWM(2,1001);
+    set_PWM(3,1001);
     run_program = 0;
     printf("Below accelerometer min.\r\n");
   }
-  if (fabs(roll_angle) > 45) { // roll angle > 45 deg or < -45 deg
+  if (fabs(compFiltRoll) > 45) { // roll angle > 45 deg or < -45 deg
+    // safe_state = 0;
+    set_PWM(0,1001);
+    set_PWM(1,1001);
+    set_PWM(2,1001);
+    set_PWM(3,1001);
     run_program = 0;
     printf("Exceeded roll angle range.\r\n");
   }
-  if (fabs(pitch_angle) > 45) { // pitch angle > 45 deg or < -45 deg
+  if (fabs(compFiltPitch) > 45) { // pitch angle > 45 deg or < -45 deg
+    // safe_state = 0;
+    set_PWM(0,1001);
+    set_PWM(1,1001);
+    set_PWM(2,1001);
+    set_PWM(3,1001);
     run_program = 0;
     printf("Exceeded pitch angle range.\r\n");
   }
+
+  // return safe_state;
+
+}
+
+//
+void init_pwm()
+{
+
+    pwm=wiringPiI2CSetup (0x40);
+    if(pwm==-1)
+    {
+      printf("-----cant connect to I2C device %d --------\n",pwm);
+
+    }
+    else
+    {
+
+      float freq =400.0*.95;
+      float prescaleval = 25000000;
+      prescaleval /= 4096;
+      prescaleval /= freq;
+      prescaleval -= 1;
+      uint8_t prescale = floor(prescaleval+0.5);
+      int settings = wiringPiI2CReadReg8(pwm, 0x00) & 0x7F;
+      int sleep	= settings | 0x10;
+      int wake 	= settings & 0xef;
+      int restart = wake | 0x80;
+      wiringPiI2CWriteReg8(pwm, 0x00, sleep);
+      wiringPiI2CWriteReg8(pwm, 0xfe, prescale);
+      wiringPiI2CWriteReg8(pwm, 0x00, wake);
+      delay(10);
+      wiringPiI2CWriteReg8(pwm, 0x00, restart|0x20);
+    }
+}
+
+// Motor initialization (added week 3)
+void init_motor(uint8_t channel)
+{
+	int on_value=0;
+
+	int time_on_us=900;
+	uint16_t off_value=round((time_on_us*4096.f)/(1000000.f/400.0));
+
+	wiringPiI2CWriteReg8(pwm, LED0_ON_L + LED_MULTIPLYER * channel, on_value & 0xFF);
+	wiringPiI2CWriteReg8(pwm, LED0_ON_H + LED_MULTIPLYER * channel, on_value >> 8);
+	wiringPiI2CWriteReg8(pwm, LED0_OFF_L + LED_MULTIPLYER * channel, off_value & 0xFF);
+	wiringPiI2CWriteReg8(pwm, LED0_OFF_H + LED_MULTIPLYER * channel, off_value >> 8);
+	delay(100);
+
+	 time_on_us=1200;
+	 off_value=round((time_on_us*4096.f)/(1000000.f/400.0));
+
+	wiringPiI2CWriteReg8(pwm, LED0_ON_L + LED_MULTIPLYER * channel, on_value & 0xFF);
+	wiringPiI2CWriteReg8(pwm, LED0_ON_H + LED_MULTIPLYER * channel, on_value >> 8);
+	wiringPiI2CWriteReg8(pwm, LED0_OFF_L + LED_MULTIPLYER * channel, off_value & 0xFF);
+	wiringPiI2CWriteReg8(pwm, LED0_OFF_H + LED_MULTIPLYER * channel, off_value >> 8);
+	delay(100);
+
+	 time_on_us=1000;
+	 off_value=round((time_on_us*4096.f)/(1000000.f/400.0));
+
+	wiringPiI2CWriteReg8(pwm, LED0_ON_L + LED_MULTIPLYER * channel, on_value & 0xFF);
+	wiringPiI2CWriteReg8(pwm, LED0_ON_H + LED_MULTIPLYER * channel, on_value >> 8);
+	wiringPiI2CWriteReg8(pwm, LED0_OFF_L + LED_MULTIPLYER * channel, off_value & 0xFF);
+	wiringPiI2CWriteReg8(pwm, LED0_OFF_H + LED_MULTIPLYER * channel, off_value >> 8);
+	delay(100);
+
+}
+//PWM set function (added week 3)
+void set_PWM( uint8_t channel, float time_on_us)
+{
+  if(run_program==1)
+  {
+    if(time_on_us>PWM_MAX)
+    {
+      time_on_us=PWM_MAX;
+    }
+    else if(time_on_us<1000)
+    {
+      time_on_us=1000;
+    }
+  	uint16_t off_value=round((time_on_us*4096.f)/(1000000.f/400.0));
+  	wiringPiI2CWriteReg16(pwm, LED0_OFF_L + LED_MULTIPLYER * channel,off_value);
+  }
+
 }
