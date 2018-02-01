@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <curses.h>
 
-//gcc -o week1 week_1.cpp -lwiringPi -lncurses -lm
+//gcc -o student student.cpp -lwiringPi -lncurses -lm
 
 #define frequency 25000000.0
 #define CONFIG           0x1A
@@ -27,7 +27,7 @@
 
 // Definitions for P controller in week 3
 //add constants
-#define PWM_MAX 1500
+#define PWM_MAX 1900
 #define frequency 25000000.0
 #define LED0 0x6
 #define LED0_ON_L 0x6
@@ -183,22 +183,35 @@ int main (int argc, char *argv[])
 
 // PID controller, added week 3
 void pid_update(){
-  int neutral_power = 1300;
-  int P = 15;
-  int D = 200;
+  int neutral_power = 1650;
+  int P = 18;
+  int I = .05;
+  int D = 300;
   float desiredPitch = 0;
   float pitchError = desiredPitch -compFiltPitch;
   float pitchVelocity = compFiltPitch - previous_pitch;
+  static float pitchIntegral = 0;
 
-  float m0PWM = neutral_power + pitchVelocity*D;//- P*pitchError;
-  float m1PWM = neutral_power - pitchVelocity*D;//+ P*pitchError;
-  float m2PWM = neutral_power + pitchVelocity*D;//- P*pitchError;
-  float m3PWM = neutral_power - pitchVelocity*D;//+ P*pitchError;
+  pitchIntegral += I*pitchError;
+  if (pitchIntegral > 100) {
+    pitchIntegral = 100;
+  }
+  if (pitchIntegral < -100) {
+    pitchIntegral = -100;
+  }
+
+  float m0PWM = neutral_power + pitchVelocity*D - P*pitchError - pitchIntegral;
+  float m1PWM = neutral_power - pitchVelocity*D + P*pitchError + pitchIntegral;
+  float m2PWM = neutral_power + pitchVelocity*D - P*pitchError - pitchIntegral;
+  float m3PWM = neutral_power - pitchVelocity*D + P*pitchError + pitchIntegral;
+
 
   set_PWM(0,int(m0PWM));
   set_PWM(1,int(m1PWM));
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
+
+
 
 }
 void calibrate_imu()
@@ -364,7 +377,7 @@ void update_filter()
   compFiltPitch = pitch_angle*AP + (1-AP)*(pitch_gyro_delta + compFiltPitch);
 
   // printf("%f\t%f\t%f\r\n",compFiltRoll,roll_angle,imu_data[1]);
-  printf("%f\t%f\t%f\r\n",compFiltPitch,pitch_angle,imu_data[0]);
+  printf("%f\r\n",compFiltPitch);
 }
 
 
@@ -461,25 +474,25 @@ void safety_check() {
     printf("Above gyro rate limit.\r\n");
 
   }
-  if ((fabs(imu_data[3]) > 1.8) | (fabs(imu_data[4]) > 1.8) | (fabs(imu_data[5]) > 1.8)) { // any accelerometer value > 1.8 g (< -1.8?)
-    // safe_state = 0;
-    set_PWM(0,1001);
-    set_PWM(1,1001);
-    set_PWM(2,1001);
-    set_PWM(3,1001);
-    run_program = 0;
-    printf("Above accelerometer max.\r\n");
-
-  }
-  if ((fabs(imu_data[3]) < 0.25) && (fabs(imu_data[4]) < 0.25) && (fabs(imu_data[5]) < 0.25)) { // ALL accelerometer values < 0.25 g
-    // safe_state = 0;
-    set_PWM(0,1001);
-    set_PWM(1,1001);
-    set_PWM(2,1001);
-    set_PWM(3,1001);
-    run_program = 0;
-    printf("Below accelerometer min.\r\n");
-  }
+  // if ((fabs(imu_data[3]) > 1.8) | (fabs(imu_data[4]) > 1.8) | (fabs(imu_data[5]) > 1.8)) { // any accelerometer value > 1.8 g (< -1.8?)
+  //   // safe_state = 0;
+  //   set_PWM(0,1001);
+  //   set_PWM(1,1001);
+  //   set_PWM(2,1001);
+  //   set_PWM(3,1001);
+  //   run_program = 0;
+  //   printf("Above accelerometer max.\r\n");
+  //
+  // }
+  // if ((fabs(imu_data[3]) < 0.25) && (fabs(imu_data[4]) < 0.25) && (fabs(imu_data[5]) < 0.25)) { // ALL accelerometer values < 0.25 g
+  //   // safe_state = 0;
+  //   set_PWM(0,1001);
+  //   set_PWM(1,1001);
+  //   set_PWM(2,1001);
+  //   set_PWM(3,1001);
+  //   run_program = 0;
+  //   printf("Below accelerometer min.\r\n");
+  // }
   if (fabs(compFiltRoll) > 45) { // roll angle > 45 deg or < -45 deg
     // safe_state = 0;
     set_PWM(0,1001);
