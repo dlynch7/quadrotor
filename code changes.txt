@@ -1,0 +1,10 @@
+//update shared memory struct
+
+struct Keyboard {
+  int keypress;
+	float pitch;
+	float roll;
+	float yaw;
+	float thrust;
+  int version;
+};
