@@ -22,12 +22,13 @@
 #define PWR_MGMT_1       0x6B // Device defaults to the SLEEP mode
 #define PWR_MGMT_2       0x6C
 
-#define AR 0.02 // complementary filter roll coefficient
-#define AP 0.02 // complementary filter pitch coefficient
+#define AR 0.01 // complementary filter roll coefficient
+#define AP 0.01 // complementary filter pitch coefficient
 
 // Definitions for P controller in week 3
 //add constants
 #define PWM_MAX 1800
+#define NEUTRAL_THRUST 1500
 #define frequency 25000000.0
 #define LED0 0x6
 #define LED0_ON_L 0x6
@@ -51,20 +52,40 @@ enum Gscale {
   GFS_2000DPS
 };
 
-//global variables added in week 2
+// //global variables added in week 2
+// struct Keyboard {
+//   char key_press;
+//   int heartbeat;
+//   int version;
+// };
+
+//update shared memory struct
 struct Keyboard {
-  char key_press;
-  int heartbeat;
+  int keypress;
+	float pitch;
+	float roll;
+	float yaw;
+	float thrust;
   int version;
 };
-Keyboard* shared_memory;
-int run_program=1;
 
-int setup_imu();
-void calibrate_imu();
-void read_imu();
-void update_filter();
-void safety_check();
+Keyboard* shared_memory;
+int run_program = 1;
+
+int setup_imu(void);
+void calibrate_imu(void);
+void read_imu(void);
+void update_filter(void);
+void safety_check(void);
+void setup_keyboard(void);
+void trap(int);
+void init_pwm(void);
+void init_motor(uint8_t);
+void set_PWM(uint8_t,float);
+void pid_update(void);
+void get_joystick(void);
+
+unsigned char PAUSED = 1;
 
 //pwm variable added in week 3
 int pwm;
@@ -87,7 +108,7 @@ float pitch_angle=0;
 float roll_angle=0;
 
 float previous_pitch = 0;
-
+float previous_roll = 0;
 
 float roll_imu = 0;
 float pitch_imu = 0;
@@ -95,13 +116,9 @@ float pitch_imu = 0;
 float compFiltRoll = 0; // roll angle calculated by complementary filter in update_filter()
 float compFiltPitch = 0; // pitch angle calculated by complementary filter in update_filter()
 
-
-void setup_keyboard(void);
-void trap(int);
-void init_pwm();
-void init_motor(uint8_t);
-void set_PWM(uint8_t,float);
-void pid_update();
+float Thrust = 0;
+float desiredPitch = 0;
+float desiredRoll = 0;
 
 int main (int argc, char *argv[])
 {
@@ -120,7 +137,7 @@ int main (int argc, char *argv[])
 
     //to set motor speed call
     //set_PWM(<motor number>,<speed>); //speed between 1000 and PWM_MAX, motor 0-3
-    if (run_program ==0){
+    if (run_program==0){
         set_PWM(0,1000);
         set_PWM(1,1000);
         set_PWM(2,1000);
@@ -128,7 +145,6 @@ int main (int argc, char *argv[])
     }
 
     setup_imu();
-    calibrate_imu();
 
     //in main before while(1) loop add...
     setup_keyboard();
@@ -137,62 +153,86 @@ int main (int argc, char *argv[])
     //to refresh values from shared memory first
     Keyboard keyboard=*shared_memory;
 
-    //get current time
-    gettimeofday(&tm,NULL);
-    heart_beat_timer=tm.tv_sec*1000LL+tm.tv_usec/1000;
-
     while(run_program==1)
     {
 
       //to refresh values from shared memory first
       Keyboard keyboard=*shared_memory;
-      if (shared_memory->key_press == ' '){
-        run_program = 0;
-        printf("space pressed\r\n");
-      }
-
-      //get current time
-      gettimeofday(&tm,NULL);
-      curr_time=tm.tv_sec*1000LL+tm.tv_usec/1000;
-
-      // if heartbeat has not changed in 0.25 seconds, stop program.
-      if(curr_time>heart_beat_timer+250)
-      {
-          run_program = 0;
-          printf("heartbeat stopped. CPR STAT.\n\r");
-      }
-
-      if (heartbeat_prev < shared_memory->heartbeat) {
-        heart_beat_timer=curr_time;
-      }
-
-      heartbeat_prev = shared_memory->heartbeat;
+      printf("%d\r\n",shared_memory->keypress);
 
       safety_check();
 
       read_imu();
       update_filter();
-      pid_update();
+      get_joystick();
+      if (PAUSED==0) {
+        pid_update();
+      }
       previous_pitch = compFiltPitch;
 
     }
 
+    set_PWM(0,1000);
+    set_PWM(1,1000);
+    set_PWM(2,1000);
+    set_PWM(3,1000);
 
     return 0;
 }
 
+void get_joystick(void) { // grab cmds from joystick, added week 5
+  Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128);
+  desiredPitch = 0 -(shared_memory->pitch - 128)/8.0;
+  desiredRoll = 0 -(shared_memory->roll - 128)/8.0;
+
+  if (shared_memory->keypress == ' '){
+    set_PWM(0,1000);
+    set_PWM(1,1000);
+    set_PWM(2,1000);
+    set_PWM(3,1000);
+    run_program = 0;
+    printf("space pressed\r\n");
+    printf("ending program\n\r");
+  }
+
+  if (shared_memory->keypress==33) { // if PAUSE pressed
+    set_PWM(0,1000);
+    set_PWM(1,1000);
+    set_PWM(2,1000);
+    set_PWM(3,1000);
+
+    PAUSED = 1;
+  }
+
+  if (shared_memory->keypress==34) { // if UN-PAUSE pressed
+    PAUSED = 0;
+  }
+
+  if (shared_memory->keypress==35) { // if CALIBRATE pressed
+    calibrate_imu();
+  }
+  // printf("Thrust: %f\tdesiredPitch: %f\n", Thrust, desiredPitch);
+}
+
 // PID controller, added week 3
 void pid_update(){
-  int neutral_power = 1500;
-  int P = 16;
-  float I = .1;
-  int D = 400;
-  float desiredPitch = 0;
+  int pP = 16;
+  float pI = .25;
+  int pD = 500;
   float pitchError = desiredPitch -compFiltPitch;
   float pitchVelocity = compFiltPitch - previous_pitch;
   static float pitchIntegral = 0;
+  static float pitchControl = 0;
 
-  pitchIntegral += I*pitchError;
+  int rP = 16;
+  float rI = .25;
+  int rD = 500;
+  float rollError = desiredRoll -compFiltRoll;
+  float rollVelocity = compFiltRoll - previous_roll;
+  static float rollIntegral = 0;
+  static float rollControl = 0;
+
+  pitchIntegral += pI*pitchError;
   if (pitchIntegral > 100) {
     pitchIntegral = 100;
   }
@@ -200,20 +240,21 @@ void pid_update(){
     pitchIntegral = -100;
   }
 
-  // float m0PWM = neutral_power - P*pitchError;
-  // float m1PWM = neutral_power + P*pitchError;
-  // float m2PWM = neutral_power - P*pitchError;
-  // float m3PWM = neutral_power + P*pitchError;
+  rollIntegral += rI*rollError;
+  if (rollIntegral > 100) {
+    rollIntegral = 100;
+  }
+  if (rollIntegral < -100) {
+    rollIntegral = -100;
+  }
 
-  // float m0PWM = neutral_power - P*pitchError + D*pitchVelocity;
-  // float m1PWM = neutral_power + P*pitchError - D*pitchVelocity;
-  // float m2PWM = neutral_power - P*pitchError + D*pitchVelocity;
-  // float m3PWM = neutral_power + P*pitchError - D*pitchVelocity;
+  pitchControl = pitchVelocity*pD - pP*pitchError - pitchIntegral; // add for m0,m2, subtract for m1,m3
+  rollControl = rollVelocity*rD - rP*rollError - rollIntegral; // add for m0,m2, subtract for m1,m3
 
-  float m0PWM = neutral_power + pitchVelocity*D - P*pitchError - pitchIntegral;
-  float m1PWM = neutral_power - pitchVelocity*D + P*pitchError + pitchIntegral;
-  float m2PWM = neutral_power + pitchVelocity*D - P*pitchError - pitchIntegral;
-  float m3PWM = neutral_power - pitchVelocity*D + P*pitchError + pitchIntegral;
+  float m0PWM = Thrust + pitchControl + rollControl; // check sign on rollControl
+  float m1PWM = Thrust - pitchControl - rollControl;
+  float m2PWM = Thrust + pitchControl + rollControl;
+  float m3PWM = Thrust - pitchControl - rollControl;
 
 
   set_PWM(0,int(m0PWM));
@@ -221,12 +262,9 @@ void pid_update(){
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
 
-  printf("%f\n",compFiltPitch);
-
-  // printf("Pitch: %f\tpVel: %f\tD-term: %f\n", compFiltPitch, pitchVelocity, D*pitchVelocity);
-  // printf("m0PWM: %f\tm1PWM: %f\tm2PWM: %f\tm3PWM: %f\n", m0PWM,m1PWM,m2PWM,m3PWM);
-
+  // printf("%f\n",compFiltPitch);
 }
+
 void calibrate_imu()
 {
   float imuSum[6] = {0,0,0,0,0,0}; // array for storing IMU data to be used for calibration
@@ -464,10 +502,10 @@ void setup_keyboard()
   void trap(int signal)
   {
 
-    set_PWM(0,1001);
-    set_PWM(1,1001);
-    set_PWM(2,1001);
-    set_PWM(3,1001);
+    set_PWM(0,1000);
+    set_PWM(1,1000);
+    set_PWM(2,1000);
+    set_PWM(3,1000);
 
      printf("ending program\n\r");
      run_program=0;
