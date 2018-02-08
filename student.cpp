@@ -27,7 +27,7 @@
 
 // Definitions for P controller in week 3
 //add constants
-#define PWM_MAX 1900
+#define PWM_MAX 1800
 #define frequency 25000000.0
 #define LED0 0x6
 #define LED0_ON_L 0x6
@@ -183,10 +183,10 @@ int main (int argc, char *argv[])
 
 // PID controller, added week 3
 void pid_update(){
-  int neutral_power = 1650;
-  int P = 18;
-  int I = .05;
-  int D = 300;
+  int neutral_power = 1500;
+  int P = 16;
+  float I = .1;
+  int D = 400;
   float desiredPitch = 0;
   float pitchError = desiredPitch -compFiltPitch;
   float pitchVelocity = compFiltPitch - previous_pitch;
@@ -200,6 +200,16 @@ void pid_update(){
     pitchIntegral = -100;
   }
 
+  // float m0PWM = neutral_power - P*pitchError;
+  // float m1PWM = neutral_power + P*pitchError;
+  // float m2PWM = neutral_power - P*pitchError;
+  // float m3PWM = neutral_power + P*pitchError;
+
+  // float m0PWM = neutral_power - P*pitchError + D*pitchVelocity;
+  // float m1PWM = neutral_power + P*pitchError - D*pitchVelocity;
+  // float m2PWM = neutral_power - P*pitchError + D*pitchVelocity;
+  // float m3PWM = neutral_power + P*pitchError - D*pitchVelocity;
+
   float m0PWM = neutral_power + pitchVelocity*D - P*pitchError - pitchIntegral;
   float m1PWM = neutral_power - pitchVelocity*D + P*pitchError + pitchIntegral;
   float m2PWM = neutral_power + pitchVelocity*D - P*pitchError - pitchIntegral;
@@ -211,7 +221,10 @@ void pid_update(){
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
 
+  printf("%f\n",compFiltPitch);
 
+  // printf("Pitch: %f\tpVel: %f\tD-term: %f\n", compFiltPitch, pitchVelocity, D*pitchVelocity);
+  // printf("m0PWM: %f\tm1PWM: %f\tm2PWM: %f\tm3PWM: %f\n", m0PWM,m1PWM,m2PWM,m3PWM);
 
 }
 void calibrate_imu()
@@ -377,7 +390,7 @@ void update_filter()
   compFiltPitch = pitch_angle*AP + (1-AP)*(pitch_gyro_delta + compFiltPitch);
 
   // printf("%f\t%f\t%f\r\n",compFiltRoll,roll_angle,imu_data[1]);
-  printf("%f\r\n",compFiltPitch);
+  // printf("%f\r\n",compFiltPitch);
 }
 
 
