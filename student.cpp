@@ -22,12 +22,12 @@
 #define PWR_MGMT_1       0x6B // Device defaults to the SLEEP mode
 #define PWR_MGMT_2       0x6C
 
-#define AR 0.01 // complementary filter roll coefficient
+#define AR 0.005 // complementary filter roll coefficient
 #define AP 0.01 // complementary filter pitch coefficient
 
 // Definitions for P controller in week 3
 //add constants
-#define PWM_MAX 1800
+#define PWM_MAX 2000
 #define NEUTRAL_THRUST 1500
 #define frequency 25000000.0
 #define LED0 0x6
@@ -119,6 +119,7 @@ float compFiltPitch = 0; // pitch angle calculated by complementary filter in up
 float Thrust = 0;
 float desiredPitch = 0;
 float desiredRoll = 0;
+float desiredYaw = 0;
 
 int main (int argc, char *argv[])
 {
@@ -158,7 +159,7 @@ int main (int argc, char *argv[])
 
       //to refresh values from shared memory first
       Keyboard keyboard=*shared_memory;
-      printf("%d\r\n",shared_memory->keypress);
+      // printf("%d\r\n",shared_memory->keypress);
 
       safety_check();
 
@@ -169,6 +170,7 @@ int main (int argc, char *argv[])
         pid_update();
       }
       previous_pitch = compFiltPitch;
+      previous_roll = compFiltRoll;
 
     }
 
@@ -181,9 +183,10 @@ int main (int argc, char *argv[])
 }
 
 void get_joystick(void) { // grab cmds from joystick, added week 5
-  Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128);
+  Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128)/4.0;
   desiredPitch = 0 -(shared_memory->pitch - 128)/8.0;
-  desiredRoll = 0 -(shared_memory->roll - 128)/8.0;
+  desiredRoll = 0 + (shared_memory->roll - 128)/8.0;
+  desiredYaw = 0 -(shared_memory->yaw - 128);
 
   if (shared_memory->keypress == ' '){
     set_PWM(0,1000);
@@ -211,7 +214,7 @@ void get_joystick(void) { // grab cmds from joystick, added week 5
   if (shared_memory->keypress==35) { // if CALIBRATE pressed
     calibrate_imu();
   }
-  // printf("Thrust: %f\tdesiredPitch: %f\n", Thrust, desiredPitch);
+  // printf("Yaw Cmd: %f\n", desiredYaw);
 }
 
 // PID controller, added week 3
@@ -224,13 +227,16 @@ void pid_update(){
   static float pitchIntegral = 0;
   static float pitchControl = 0;
 
-  int rP = 16;
-  float rI = .25;
-  int rD = 500;
+  int rP = 12; // 16
+  float rI = 0.05; // 0.25
+  int rD = 200; // 100
   float rollError = desiredRoll -compFiltRoll;
   float rollVelocity = compFiltRoll - previous_roll;
   static float rollIntegral = 0;
   static float rollControl = 0;
+
+  int yP = 1;
+  static float yawControl = 0;
 
   pitchIntegral += pI*pitchError;
   if (pitchIntegral > 100) {
@@ -249,12 +255,15 @@ void pid_update(){
   }
 
   pitchControl = pitchVelocity*pD - pP*pitchError - pitchIntegral; // add for m0,m2, subtract for m1,m3
+  // pitchControl = 0;
   rollControl = rollVelocity*rD - rP*rollError - rollIntegral; // add for m0,m2, subtract for m1,m3
+  // printf("Roll control: %f\n",rollControl);
+  yawControl = yP*(desiredYaw - imu_data[2]);
 
-  float m0PWM = Thrust + pitchControl + rollControl; // check sign on rollControl
-  float m1PWM = Thrust - pitchControl - rollControl;
-  float m2PWM = Thrust + pitchControl + rollControl;
-  float m3PWM = Thrust - pitchControl - rollControl;
+  float m0PWM = Thrust + pitchControl + rollControl - yawControl;
+  float m1PWM = Thrust - pitchControl + rollControl + yawControl;
+  float m2PWM = Thrust + pitchControl - rollControl + yawControl;
+  float m3PWM = Thrust - pitchControl - rollControl - yawControl;
 
 
   set_PWM(0,int(m0PWM));
@@ -262,7 +271,8 @@ void pid_update(){
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
 
-  // printf("%f\n",compFiltPitch);
+  printf("%f\n",yawControl);
+  // printf("%f\t%f\t%f\t%f\n", m0PWM,m1PWM,m2PWM,m3PWM);
 }
 
 void calibrate_imu()
@@ -287,7 +297,7 @@ void calibrate_imu()
   roll_calibration=imuSum[3]/1000;
   pitch_calibration=imuSum[4]/1000;
   accel_z_calibration=imuSum[5]/1000;
-printf("calibration complete, %f %f %f %f %f %f\n\r",x_gyro_calibration,y_gyro_calibration,z_gyro_calibration,roll_calibration,pitch_calibration,accel_z_calibration);
+printf("calibration complete, %f %f %f %f %f %f\r\n",x_gyro_calibration,y_gyro_calibration,z_gyro_calibration,roll_calibration,pitch_calibration,accel_z_calibration);
 
 
 }
@@ -428,7 +438,7 @@ void update_filter()
   compFiltPitch = pitch_angle*AP + (1-AP)*(pitch_gyro_delta + compFiltPitch);
 
   // printf("%f\t%f\t%f\r\n",compFiltRoll,roll_angle,imu_data[1]);
-  // printf("%f\r\n",compFiltPitch);
+  // printf("%f\t%f\t%f\r\n",compFiltRoll, roll_angle, imu_data[1]);
 }
 
 
