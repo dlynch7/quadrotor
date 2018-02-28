@@ -27,7 +27,7 @@
 
 // Definitions for P controller in week 3
 //add constants
-#define PWM_MAX 2000
+#define PWM_MAX 1900
 #define NEUTRAL_THRUST 1500
 #define frequency 25000000.0
 #define LED0 0x6
@@ -183,10 +183,10 @@ int main (int argc, char *argv[])
 }
 
 void get_joystick(void) { // grab cmds from joystick, added week 5
-  Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128)/4.0;
-  desiredPitch = 0 -(shared_memory->pitch - 128)/8.0;
-  desiredRoll = 0 + (shared_memory->roll - 128)/8.0;
-  desiredYaw = 0 -(shared_memory->yaw - 128);
+  Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128)*2.0;
+  desiredPitch = 0 -(shared_memory->pitch - 128)/12.0;
+  desiredRoll = 0 + (shared_memory->roll - 128)/12.0;
+  desiredYaw = 0 +(shared_memory->yaw - 128)*1.2;
 
   if (shared_memory->keypress == ' '){
     set_PWM(0,1000);
@@ -219,23 +219,23 @@ void get_joystick(void) { // grab cmds from joystick, added week 5
 
 // PID controller, added week 3
 void pid_update(){
-  int pP = 16;
-  float pI = .25;
-  int pD = 500;
+  float pP = 15; //16
+  float pI = .01; //.25
+  float pD = 200; //500
   float pitchError = desiredPitch -compFiltPitch;
   float pitchVelocity = compFiltPitch - previous_pitch;
   static float pitchIntegral = 0;
   static float pitchControl = 0;
 
-  int rP = 12; // 16
-  float rI = 0.05; // 0.25
-  int rD = 200; // 100
+  float rP = 15; // 16
+  float rI = 0.01; // 0.25
+  float rD = 200; // 100
   float rollError = desiredRoll -compFiltRoll;
   float rollVelocity = compFiltRoll - previous_roll;
   static float rollIntegral = 0;
   static float rollControl = 0;
 
-  int yP = 1;
+  float yP = .5;
   static float yawControl = 0;
 
   pitchIntegral += pI*pitchError;
@@ -278,6 +278,13 @@ void pid_update(){
 void calibrate_imu()
 {
   float imuSum[6] = {0,0,0,0,0,0}; // array for storing IMU data to be used for calibration
+
+  x_gyro_calibration=0;
+  y_gyro_calibration=0;
+  z_gyro_calibration=0;
+  roll_calibration=0;
+  pitch_calibration=0;
+  accel_z_calibration=0;
 
   // read from IMU 1000 times and append data to array imuSum:
   for (size_t i = 0; i < 1000; i++) {
