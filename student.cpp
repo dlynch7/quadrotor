@@ -9,6 +9,7 @@
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <curses.h>
+#include "vive.h"
 
 //gcc -o student student.cpp -lwiringPi -lncurses -lm
 
@@ -69,6 +70,9 @@ struct Keyboard {
   int version;
 };
 
+Position local_p;
+int vive_prev_version = 0;
+
 Keyboard* shared_memory;
 int run_program = 1;
 
@@ -84,6 +88,7 @@ void init_motor(uint8_t);
 void set_PWM(uint8_t,float);
 void pid_update(void);
 void get_joystick(void);
+void get_vive(void);
 
 unsigned char PAUSED = 1;
 
@@ -107,6 +112,17 @@ float yaw=0;
 float pitch_angle=0;
 float roll_angle=0;
 
+struct timespec tv;
+float prev_version_time = 0;
+int vive_version = 0;
+float vive_time_prev = 0;
+
+float vive_x = 0;
+float vive_y = 0;
+float vive_z = 0;
+float vive_yaw = 0;
+float version_timer = 0;
+
 float previous_pitch = 0;
 float previous_roll = 0;
 
@@ -127,6 +143,8 @@ int main (int argc, char *argv[])
     struct timeval tm;
     long curr_time = 0;
     long heart_beat_timer = 0;
+
+    init_shared_memory();
 
     //motor initializations (added week 3)
     init_pwm();
@@ -158,11 +176,13 @@ int main (int argc, char *argv[])
     {
 
       //to refresh values from shared memory first
+      local_p=*position;
       Keyboard keyboard=*shared_memory;
       // printf("%d\r\n",shared_memory->keypress);
 
       safety_check();
 
+      get_vive();
       read_imu();
       update_filter();
       get_joystick();
@@ -180,6 +200,57 @@ int main (int argc, char *argv[])
     set_PWM(3,1000);
 
     return 0;
+}
+
+void get_vive() {
+
+  vive_version = local_p.version;
+  printf("version: %d\t previous: %d\t x: %f\t y: %f\t z: %f\t yaw: %f\n",vive_version,vive_prev_version,vive_x,vive_y,vive_z,vive_yaw);
+  vive_x = local_p.x;
+  vive_y = local_p.y;
+  vive_z = local_p.z;
+  vive_yaw = local_p.yaw;
+
+  if(vive_version == vive_prev_version){ // if vive "heartbeat" has not changed yet
+    printf("Why wont this thing change!!\n");
+    //get current time in nanoseconds
+    timespec_get(&tv,TIME_UTC);
+    time_curr=tv.tv_nsec;
+    //compute time since last execution
+    float vive_diff=time_curr-vive_time_prev;
+    // if (vive_diff > 500000) { // 500000 ns = 0.5 s
+    //   // End this program:
+    //   printf("Vive heartbeat stopped. Ending.\n");
+    //   run_program = 0;
+    //   set_PWM(0,1000);
+    //   set_PWM(1,1000);
+    //   set_PWM(2,1000);
+    //   set_PWM(3,1000);
+    // }
+  } else { // vive "heartbeat" has changed
+    printf("I hear the tell-tale heart\n");
+    vive_time_prev = time_curr;
+    vive_prev_version = vive_version;
+  }
+
+  if (fabs(vive_x) > 1000) {
+    run_program = 0;
+    set_PWM(0,1000);
+    set_PWM(1,1000);
+    set_PWM(2,1000);
+    set_PWM(3,1000);
+  }
+  if (fabs(vive_y) > 1000) {
+    run_program = 0;
+    set_PWM(0,1000);
+    set_PWM(1,1000);
+    set_PWM(2,1000);
+    set_PWM(3,1000);
+  }
+
+
+  // printf("version: %d\t x: %f\t y: %f\t z: %f\t yaw: %f\n",vive_version,vive_x,vive_y,vive_z,vive_yaw);
+  // vive_prev_version = vive_version;
 }
 
 void get_joystick(void) { // grab cmds from joystick, added week 5
@@ -266,12 +337,12 @@ void pid_update(){
   float m3PWM = Thrust - pitchControl - rollControl - yawControl;
 
 
-  set_PWM(0,int(m0PWM));
-  set_PWM(1,int(m1PWM));
-  set_PWM(2,int(m2PWM));
-  set_PWM(3,int(m3PWM));
+  // set_PWM(0,int(m0PWM));
+  // set_PWM(1,int(m1PWM));
+  // set_PWM(2,int(m2PWM));
+  // set_PWM(3,int(m3PWM));
 
-  printf("%f\n",yawControl);
+  // printf("%f\n",yawControl);
   // printf("%f\t%f\t%f\t%f\n", m0PWM,m1PWM,m2PWM,m3PWM);
 }
 
