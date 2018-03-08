@@ -122,6 +122,7 @@ float vive_y = 0;
 float vive_z = 0;
 float vive_yaw = 0;
 float version_timer = 0;
+uint8_t same_vive_version_counter;
 
 float previous_pitch = 0;
 float previous_roll = 0;
@@ -143,6 +144,7 @@ int main (int argc, char *argv[])
     struct timeval tm;
     long curr_time = 0;
     long heart_beat_timer = 0;
+    same_vive_version_counter = 0;
 
     init_shared_memory();
 
@@ -212,13 +214,14 @@ void get_vive() {
   vive_yaw = local_p.yaw;
 
   if(vive_version == vive_prev_version){ // if vive "heartbeat" has not changed yet
-    printf("Why wont this thing change!!\n");
+    same_vive_version_counter++;
+    // printf("Why wont this thing change!!\n");
     //get current time in nanoseconds
-    timespec_get(&tv,TIME_UTC);
-    time_curr=tv.tv_nsec;
-    //compute time since last execution
-    float vive_diff=time_curr-vive_time_prev;
-    if (vive_diff > 500000000) { // 500000 ns = 0.5 s
+    // timespec_get(&tv,TIME_UTC);
+    // time_curr=tv.tv_nsec;
+    // //compute time since last execution
+    // float vive_diff=time_curr-vive_time_prev;
+    if (same_vive_version_counter > 50) { // 500,000,000 ns = 0.5 s
       // End this program:
       printf("Vive heartbeat stopped. Ending.\n");
       run_program = 0;
@@ -227,14 +230,16 @@ void get_vive() {
       set_PWM(2,1000);
       set_PWM(3,1000);
     }
-    vive_time_prev = time_curr;
+    // vive_time_prev = time_curr;
   } else { // vive "heartbeat" has changed
-    printf("I hear the tell-tale heart\n");
-    vive_time_prev = time_curr;
+    same_vive_version_counter = 0;
+    printf("Vive heartbeat detected\n");
+    // vive_time_prev = time_curr;
     vive_prev_version = vive_version;
   }
 
   if (fabs(vive_x) > 1000) {
+    printf("Vive out of range (x). Ending.\n");
     run_program = 0;
     set_PWM(0,1000);
     set_PWM(1,1000);
@@ -242,6 +247,7 @@ void get_vive() {
     set_PWM(3,1000);
   }
   if (fabs(vive_y) > 1000) {
+    printf("Vive out of range (y). Ending.\n");
     run_program = 0;
     set_PWM(0,1000);
     set_PWM(1,1000);
@@ -338,10 +344,10 @@ void pid_update(){
   float m3PWM = Thrust - pitchControl - rollControl - yawControl;
 
 
-  // set_PWM(0,int(m0PWM));
-  // set_PWM(1,int(m1PWM));
-  // set_PWM(2,int(m2PWM));
-  // set_PWM(3,int(m3PWM));
+  set_PWM(0,int(m0PWM));
+  set_PWM(1,int(m1PWM));
+  set_PWM(2,int(m2PWM));
+  set_PWM(3,int(m3PWM));
 
   // printf("%f\n",yawControl);
   // printf("%f\t%f\t%f\t%f\n", m0PWM,m1PWM,m2PWM,m3PWM);
