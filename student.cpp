@@ -174,6 +174,7 @@ int main (int argc, char *argv[])
     //to refresh values from shared memory first
     Keyboard keyboard=*shared_memory;
 
+    int time_count = 0;
     while(run_program==1)
     {
 
@@ -196,6 +197,27 @@ int main (int argc, char *argv[])
 
     }
 
+    if (shared_memory->version == heartbeat_prev){
+      time_count++;
+
+      if (time_count > 100)
+      {
+        printf("heartbeat stopped. CPR STAT.\n\r");
+        set_PWM(0,1000);
+        set_PWM(1,1000);
+        set_PWM(2,1000);
+        set_PWM(3,1000);
+        run_program = 0;
+
+      }
+    }
+    else {
+      heartbeat_prev = shared_memory->version;
+      time_count = 0;
+    }
+    printf("%d\n",heartbeat_prev);
+
+
     set_PWM(0,1000);
     set_PWM(1,1000);
     set_PWM(2,1000);
@@ -207,7 +229,7 @@ int main (int argc, char *argv[])
 void get_vive() {
 
   vive_version = local_p.version;
-  printf("version: %d\t previous: %d\t x: %f\t y: %f\t z: %f\t yaw: %f\n",vive_version,vive_prev_version,vive_x,vive_y,vive_z,vive_yaw);
+  printf("version: %d\t  yaw: %f\n",vive_version,vive_yaw);
   vive_x = local_p.x;
   vive_y = local_p.y;
   vive_z = local_p.z;
@@ -224,11 +246,11 @@ void get_vive() {
     if (same_vive_version_counter > 50) { // 500,000,000 ns = 0.5 s
       // End this program:
       printf("Vive heartbeat stopped. Ending.\n");
-      run_program = 0;
       set_PWM(0,1000);
       set_PWM(1,1000);
       set_PWM(2,1000);
       set_PWM(3,1000);
+      run_program = 0;
     }
     // vive_time_prev = time_curr;
   } else { // vive "heartbeat" has changed
@@ -314,6 +336,7 @@ void pid_update(){
   static float rollControl = 0;
 
   float yP = .5;
+  float yP2 = 100;
   static float yawControl = 0;
 
   pitchIntegral += pI*pitchError;
@@ -336,6 +359,7 @@ void pid_update(){
   // pitchControl = 0;
   rollControl = rollVelocity*rD - rP*rollError - rollIntegral; // add for m0,m2, subtract for m1,m3
   // printf("Roll control: %f\n",rollControl);
+  desiredYaw = yP2*(-vive_yaw);//desiredYaw - vive_yaw;
   yawControl = yP*(desiredYaw - imu_data[2]);
 
   float m0PWM = Thrust + pitchControl + rollControl - yawControl;
@@ -349,7 +373,7 @@ void pid_update(){
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
 
-  // printf("%f\n",yawControl);
+  printf("%f\n",yawControl);
   // printf("%f\t%f\t%f\t%f\n", m0PWM,m1PWM,m2PWM,m3PWM);
 }
 
