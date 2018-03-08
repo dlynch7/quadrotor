@@ -218,15 +218,16 @@ void get_vive() {
     time_curr=tv.tv_nsec;
     //compute time since last execution
     float vive_diff=time_curr-vive_time_prev;
-    // if (vive_diff > 500000) { // 500000 ns = 0.5 s
-    //   // End this program:
-    //   printf("Vive heartbeat stopped. Ending.\n");
-    //   run_program = 0;
-    //   set_PWM(0,1000);
-    //   set_PWM(1,1000);
-    //   set_PWM(2,1000);
-    //   set_PWM(3,1000);
-    // }
+    if (vive_diff > 500000000) { // 500000 ns = 0.5 s
+      // End this program:
+      printf("Vive heartbeat stopped. Ending.\n");
+      run_program = 0;
+      set_PWM(0,1000);
+      set_PWM(1,1000);
+      set_PWM(2,1000);
+      set_PWM(3,1000);
+    }
+    vive_time_prev = time_curr;
   } else { // vive "heartbeat" has changed
     printf("I hear the tell-tale heart\n");
     vive_time_prev = time_curr;
