@@ -89,6 +89,7 @@ void set_PWM(uint8_t,float);
 void pid_update(void);
 void get_joystick(void);
 void get_vive(void);
+void vive_control(void);
 
 unsigned char PAUSED = 1;
 
@@ -124,6 +125,11 @@ float vive_yaw = 0;
 float version_timer = 0;
 uint8_t same_vive_version_counter;
 
+float vive_x_estimated = 0;
+float vive_x_prev = 0;
+float vive_y_estimated = 0;
+float vive_y_prev = 0;
+
 float previous_pitch = 0;
 float previous_roll = 0;
 
@@ -134,9 +140,11 @@ float compFiltRoll = 0; // roll angle calculated by complementary filter in upda
 float compFiltPitch = 0; // pitch angle calculated by complementary filter in update_filter()
 
 float Thrust = 0;
+float desiredX = 0;
+float desiredY = 0;
 float desiredPitch = 0;
 float desiredRoll = 0;
-float desiredYaw = 0;
+float desiredYaw = 1.57;
 
 int main (int argc, char *argv[])
 {
@@ -186,6 +194,7 @@ int main (int argc, char *argv[])
       safety_check();
 
       get_vive();
+      vive_control();
       read_imu();
       update_filter();
       get_joystick();
@@ -226,10 +235,10 @@ int main (int argc, char *argv[])
     return 0;
 }
 
-void get_vive() {
+void get_vive(void) {
 
   vive_version = local_p.version;
-  printf("version: %d\t  yaw: %f\n",vive_version,vive_yaw);
+  // printf("vive yaw: %f ",vive_yaw);
   vive_x = local_p.x;
   vive_y = local_p.y;
   vive_z = local_p.z;
@@ -262,31 +271,51 @@ void get_vive() {
 
   if (fabs(vive_x) > 1000) {
     printf("Vive out of range (x). Ending.\n");
-    run_program = 0;
+
     set_PWM(0,1000);
     set_PWM(1,1000);
     set_PWM(2,1000);
     set_PWM(3,1000);
+    run_program = 0;
   }
   if (fabs(vive_y) > 1000) {
     printf("Vive out of range (y). Ending.\n");
-    run_program = 0;
+
     set_PWM(0,1000);
     set_PWM(1,1000);
     set_PWM(2,1000);
     set_PWM(3,1000);
+    run_program = 0;
   }
+}
 
+void vive_control(void) {
+  float P_x_vive = 0.03;
+  float D_x_vive = 0.7;
+  float P_y_vive = 0.03;
+  float D_y_vive = 0.7;
 
-  // printf("version: %d\t x: %f\t y: %f\t z: %f\t yaw: %f\n",vive_version,vive_x,vive_y,vive_z,vive_yaw);
-  // vive_prev_version = vive_version;
+  vive_x_estimated=vive_x_estimated*.6+vive_x*.4;
+  vive_y_estimated=vive_y_estimated*.6+vive_y*.4;
+
+  // desiredRoll = P_x_vive*(vive_x_estimated - desiredX) + D_x_vive*(vive_x_estimated - vive_x_prev);
+  desiredRoll = P_x_vive*(desiredX - vive_x_estimated);
+  // desiredPitch = P_y_vive*(vive_y_estimated - desiredY) + D_y_vive*(vive_y_estimated - vive_y_prev);
+  desiredPitch = P_y_vive*(desiredY - vive_y_estimated);
+
+  printf("vive yaw: %f\t vive x: %f\t vive y: %f\t",vive_yaw,vive_x,vive_y);
+  printf("Desired roll: %f\t", desiredRoll);
+  printf("Desired pitch: %f\n", desiredPitch);
+
+  vive_x_prev = vive_x;
+  vive_y_prev = vive_y;
 }
 
 void get_joystick(void) { // grab cmds from joystick, added week 5
   Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128)*2.0;
   desiredPitch = 0 -(shared_memory->pitch - 128)/12.0;
   desiredRoll = 0 + (shared_memory->roll - 128)/12.0;
-  desiredYaw = 0 +(shared_memory->yaw - 128)*1.2;
+  // desiredYaw = 0 +(shared_memory->yaw - 128)*1.2;
 
   if (shared_memory->keypress == ' '){
     set_PWM(0,1000);
@@ -313,6 +342,10 @@ void get_joystick(void) { // grab cmds from joystick, added week 5
 
   if (shared_memory->keypress==35) { // if CALIBRATE pressed
     calibrate_imu();
+    // desiredX = vive_x;
+    // desiredY = vive_y;
+    // vive_x_prev = vive_x;
+    // vive_y_prev = vive_y;
   }
   // printf("Yaw Cmd: %f\n", desiredYaw);
 }
@@ -358,8 +391,9 @@ void pid_update(){
   pitchControl = pitchVelocity*pD - pP*pitchError - pitchIntegral; // add for m0,m2, subtract for m1,m3
   // pitchControl = 0;
   rollControl = rollVelocity*rD - rP*rollError - rollIntegral; // add for m0,m2, subtract for m1,m3
+  // rollControl = 0;
   // printf("Roll control: %f\n",rollControl);
-  desiredYaw = yP2*(-vive_yaw);//desiredYaw - vive_yaw;
+  // desiredYaw = yP2*(vive_yaw);//desiredYaw - vive_yaw;
   yawControl = yP*(desiredYaw - imu_data[2]);
 
   float m0PWM = Thrust + pitchControl + rollControl - yawControl;
@@ -373,7 +407,7 @@ void pid_update(){
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
 
-  printf("%f\n",yawControl);
+  // printf("imu yaw: %f yaw control: %f\n",imu_data[2],yawControl);
   // printf("%f\t%f\t%f\t%f\n", m0PWM,m1PWM,m2PWM,m3PWM);
 }
 
