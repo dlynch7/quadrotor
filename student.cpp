@@ -89,7 +89,7 @@ void set_PWM(uint8_t,float);
 void pid_update(void);
 void get_joystick(void);
 void get_vive(void);
-void vive_control(void);
+void vive_control(uint8_t);
 
 unsigned char PAUSED = 1;
 
@@ -129,8 +129,14 @@ float vive_x_estimated = 0;
 float vive_x_prev = 0;
 float vive_y_estimated = 0;
 float vive_y_prev = 0;
+float vive_z_prev = 0;
+float vive_z_vel = 0;
 float vive_z_error = 0;
 float vive_z_int_error = 0;
+float z_accel_sum = 0;
+float z_accel_counts = 0;
+float z_accel_avg = 0;
+float z_vel_est = 0;
 
 float previous_pitch = 0;
 float previous_roll = 0;
@@ -141,13 +147,15 @@ float pitch_imu = 0;
 float compFiltRoll = 0; // roll angle calculated by complementary filter in update_filter()
 float compFiltPitch = 0; // pitch angle calculated by complementary filter in update_filter()
 
+float StickThrust = 0;
+float ViveThrust = 0;
 float Thrust = 0;
 float desiredX = 0;
 float desiredY = 0;
 float desiredPitch = 0;
 float desiredRoll = 0;
 float desiredYaw = 0;
-float desiredZ = 5000;
+float desiredZ = 2000;
 
 int main (int argc, char *argv[])
 {
@@ -192,12 +200,11 @@ int main (int argc, char *argv[])
       //to refresh values from shared memory first
       local_p=*position;
       Keyboard keyboard=*shared_memory;
-      // printf("%d\r\n",shared_memory->keypress);
 
       safety_check();
 
       get_vive();
-      vive_control();
+      vive_control(0);
       read_imu();
       update_filter();
       get_joystick();
@@ -239,9 +246,7 @@ int main (int argc, char *argv[])
 }
 
 void get_vive(void) {
-
   vive_version = local_p.version;
-  // printf("vive yaw: %f ",vive_yaw);
   vive_x = local_p.x;
   vive_y = -local_p.y;
   vive_z = local_p.z;
@@ -249,12 +254,6 @@ void get_vive(void) {
 
   if(vive_version == vive_prev_version){ // if vive "heartbeat" has not changed yet
     same_vive_version_counter++;
-    // printf("Why wont this thing change!!\n");
-    //get current time in nanoseconds
-    // timespec_get(&tv,TIME_UTC);
-    // time_curr=tv.tv_nsec;
-    // //compute time since last execution
-    // float vive_diff=time_curr-vive_time_prev;
     if (same_vive_version_counter > 50) { // 500,000,000 ns = 0.5 s
       // End this program:
       printf("Vive heartbeat stopped. Ending.\n");
@@ -264,14 +263,15 @@ void get_vive(void) {
       set_PWM(3,1000);
       run_program = 0;
     }
-    // vive_time_prev = time_curr;
   } else { // vive "heartbeat" has changed
     same_vive_version_counter = 0;
-    printf("Vive heartbeat detected\n");
-    vive_control();
+    // printf("Vive heartbeat detected\n");
+    z_accel_sum = 0; // reset
+    z_accel_counts = 0; // reset
+    vive_control(1); // calculate z control
     vive_x_prev = vive_x_estimated;
     vive_y_prev = vive_y_estimated;
-    // vive_time_prev = time_curr;
+    vive_z_prev = vive_z;
     vive_prev_version = vive_version;
   }
 
@@ -295,24 +295,44 @@ void get_vive(void) {
   }
 }
 
-void vive_control(void) {
-  float P_x_vive = 0.01;
-  float D_x_vive = 0.7;
-  float P_y_vive = 0.01;
-  float D_y_vive = 0.7;
-  float P_z_vive = 0.10;
-  float I_z_vive = 0.006;
+void vive_control(uint8_t zOrNot) {
+  float P_x_vive = 0.01;  // was 0.01
+  float D_x_vive = 0.8;   // was 0.8
 
-  vive_x_estimated=vive_x_estimated*.9+vive_x*.1;
-  vive_y_estimated=vive_y_estimated*.9+vive_y*.1;
+  float P_y_vive = 0.01;  // was 0.01
+  float D_y_vive = 0.8;   // was 0.8
 
-  // desiredRoll = P_x_vive*(vive_x_estimated - desiredX) + D_x_vive*(vive_x_estimated - vive_x_prev);
+  float P_z_vive = 0.09;  // 0.070 recommended
+  float I_z_vive = 0.006; // 0.003 recommended
+  float D_z_vive = 2.00;  // 2.000 recommended
+
+  float z_accel_IMU_cal = 0;
+  static float z_vel_IMU = 0;
+  static float oldZvel = 0;
+
+  float K = 50.0;
+  float A = 0.9;
+
+  vive_x_estimated=vive_x_estimated*0.925+vive_x*0.075;
+  vive_y_estimated=vive_y_estimated*0.925+vive_y*0.075;
+
   desiredRoll = P_x_vive*(desiredX - vive_x_estimated) - D_x_vive*(vive_x_estimated - vive_x_prev);
-  // desiredPitch = P_y_vive*(vive_y_estimated - desiredY) + D_y_vive*(vive_y_estimated - vive_y_prev);
   desiredPitch = P_y_vive*(desiredY - vive_y_estimated) - D_y_vive*(vive_y_estimated - vive_y_prev);
 
   vive_z_error = vive_z - desiredZ;
   vive_z_int_error = vive_z_int_error + vive_z_error;
+
+  // Z velocity term:
+  z_accel_IMU_cal = imu_data[5] - accel_z_calibration;
+  z_accel_sum += z_accel_IMU_cal;
+  z_accel_counts += 1;
+  z_accel_avg = z_accel_sum/z_accel_counts;
+
+  if (zOrNot) {
+    vive_z_vel = vive_z - vive_z_prev;
+    oldZvel = (z_vel_est + z_accel_avg*K);
+    z_vel_est = oldZvel*A + (vive_z_vel)*(1-A);
+  }
 
   // anti-integrator windup:
   if (vive_z_int_error > 300) {
@@ -322,17 +342,14 @@ void vive_control(void) {
     vive_z_int_error = -300; // floor
   }
 
-  Thrust = NEUTRAL_THRUST + P_z_vive*vive_z_error + I_z_vive*vive_z_int_error; // the sign of the Z error is reversed b/c vive measures distance
+  ViveThrust = NEUTRAL_THRUST + P_z_vive*vive_z_error + I_z_vive*vive_z_int_error + D_z_vive*z_vel_est; // the sign of the Z error is reversed b/c vive measures distance
 
-
-
-  printf("vive x: %f\t vive y: %f\t vive z: %f\t Thrust: %f\n",vive_x_estimated,vive_y_estimated,vive_z,Thrust);
-  // printf("Desired roll: %f\t", desiredRoll);
-  // printf("Desired pitch: %f\n", desiredPitch);
+  // printf("vive z pos: %f\t vive z vel: %f\t z vel est: %f\t Thrust: %f\n",vive_z,vive_z_vel,z_vel_est,Thrust);
+  printf("%f %f %f %f %f\n",vive_z,vive_z_vel,oldZvel,z_vel_est,ViveThrust);
 }
 
 void get_joystick(void) { // grab cmds from joystick, added week 5
-  // Thrust = NEUTRAL_THRUST - (shared_memory->thrust - 128)*2.0;
+  StickThrust = NEUTRAL_THRUST - (shared_memory->thrust - 128)*2.0;
   // desiredPitch = 0 -(shared_memory->pitch - 128)/12.0;
   // desiredRoll = 0 + (shared_memory->roll - 128)/12.0;
   // desiredYaw = 0 +(shared_memory->yaw - 128)*1.2;
@@ -363,10 +380,10 @@ void get_joystick(void) { // grab cmds from joystick, added week 5
   if (shared_memory->keypress==35) { // if CALIBRATE pressed
     calibrate_imu();
     vive_z_int_error = 0;
-    // desiredX = vive_x;
-    // desiredY = vive_y;
-    // vive_x_prev = vive_x;
-    // vive_y_prev = vive_y;
+    z_accel_avg = 0;
+    z_accel_sum = 0;
+    z_accel_counts = 0;
+    z_vel_est = 0;
   }
   // printf("Yaw Cmd: %f\n", desiredYaw);
 }
@@ -410,12 +427,11 @@ void pid_update(){
   }
 
   pitchControl = pitchVelocity*pD - pP*pitchError - pitchIntegral; // add for m0,m2, subtract for m1,m3
-  // pitchControl = 0;
   rollControl = rollVelocity*rD - rP*rollError - rollIntegral; // add for m0,m2, subtract for m1,m3
-  // rollControl = 0;
-  // printf("Roll control: %f\n",rollControl);
   desiredYaw = yP2*(vive_yaw);//desiredYaw - vive_yaw;
   yawControl = yP*(desiredYaw - imu_data[2]);
+
+  Thrust = 0.5*ViveThrust + 0.5*StickThrust;
 
   float m0PWM = Thrust + pitchControl + rollControl - yawControl;
   float m1PWM = Thrust - pitchControl + rollControl + yawControl;
@@ -433,9 +449,6 @@ void pid_update(){
   set_PWM(1,int(m1PWM));
   set_PWM(2,int(m2PWM));
   set_PWM(3,int(m3PWM));
-
-  // printf("imu yaw: %f yaw control: %f\n",imu_data[2],yawControl);
-  // printf("%f\t%f\t%f\t%f\n", m0PWM,m1PWM,m2PWM,m3PWM);
 }
 
 void calibrate_imu()
